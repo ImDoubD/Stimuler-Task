@@ -1,14 +1,8 @@
 from collections import defaultdict
-from fastapi import FastAPI, HTTPException, Depends
-from sqlalchemy import desc
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
 from uuid import UUID
-from typing import List, Optional
-from datetime import datetime
-from models import Error, ErrorFrequency, User, Utterance, Conversation, Base
-from database import get_db
-import json
+from typing import List
+from models import ErrorFrequency
 from redis import Redis
 from schemas import ErrorModel
 
@@ -21,7 +15,7 @@ def update_error_frequencies(user_id: UUID, conversation_id: UUID, utterance_id:
     error_frequencies = defaultdict(int)
 
     for error in errors:
-        error_category = error.errorCategory  # Accessing Pydantic model attributes with dot notation
+        error_category = error.errorCategory  
         error_subcategory = error.errorSubCategory
         key = f"{user_id}:{error_category}:{error_subcategory}"
 
@@ -38,7 +32,6 @@ def update_error_frequencies(user_id: UUID, conversation_id: UUID, utterance_id:
                 redis_cache.set(key, db_entry.frequency)
                 cache_value = db_entry.frequency
             else:
-                # If neither cache nor DB contains this, start from zero
                 cache_value = 0
 
         # Increment the cache value
@@ -64,15 +57,12 @@ def queue_batch_update(user_id: UUID, error_frequencies: defaultdict, db: Sessio
         batch_key = f"batch:{user_id}:{error_category}:{error_subcategory}"
 
         try:
-            # Increment the frequency in Redis batch queue
             redis_cache.incrby(batch_key, count)
 
-            # Set expiration only if it's a new batch key
             if not redis_cache.exists(batch_key):
                 redis_cache.expire(batch_key, BATCH_INTERVAL)
 
         except redis_cache.RedisError as e:
-            # Handle Redis failure (e.g., logging, fallback)
             print(f"Redis error while processing {batch_key}: {e}")
 
 def process_batch_update(db: Session):
@@ -81,7 +71,6 @@ def process_batch_update(db: Session):
     It reads the batch data from Redis, aggregates it, and updates the database in one go.
     """
     for batch_key in redis_cache.scan_iter("batch:*"):
-        # Extract user_id, error_category, error_subcategory from the key
         _, user_id, error_category, error_subcategory = batch_key.split(":")
         user_id = UUID(user_id)
 
@@ -97,7 +86,6 @@ def process_batch_update(db: Session):
             ).first()
 
             if db_entry:
-                # If entry exists, update the frequency
                 db_entry.frequency += frequency
             else:
                 # If entry doesn't exist, create a new one
@@ -109,10 +97,7 @@ def process_batch_update(db: Session):
                 )
                 db.add(db_entry)
 
-            # Commit the changes to the database
             db.commit()
-
-            # Remove the key from Redis after processing
             redis_cache.delete(batch_key)
 
         except redis_cache.RedisError as e:

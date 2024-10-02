@@ -66,8 +66,6 @@ def simulate_and_generate(input_data: InputData, db: Session = Depends(get_db)):
 
     return {"message": "Error frequencies simulated and batch processing triggered successfully."}
 
-
-
 @app.get("/generate-exercise")
 def generate_exercise(user_id: UUID, top_n: int = 5, db: Session = Depends(get_db)):
     errors = db.query(ErrorFrequency).filter(
